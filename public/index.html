@@ -32,70 +32,87 @@
     <!-- Network Overview Cards -->
     <section id="network-overview">
       <h2>Network Overview</h2>
-      <div class="card-grid" id="networkCards">
+      <div class="card-grid">
         <div class="card" id="card-ethereum">
           <h3>Ethereum Meme Coins</h3>
           <p class="coins-list">SHIB &middot; PEPE &middot; FLOKI</p>
           <div class="stats-row">
-            <div class="stat">
-              <span class="stat-label">Combined Market Cap</span>
-              <span class="stat-value" id="eth-mcap">--</span>
-            </div>
-            <div class="stat">
-              <span class="stat-label">Avg Social Volume (24h)</span>
-              <span class="stat-value" id="eth-social">--</span>
-            </div>
-            <div class="stat">
-              <span class="stat-label">Avg Sentiment</span>
-              <span class="stat-value" id="eth-sentiment">--</span>
-            </div>
+            <div class="stat"><span class="stat-label">Combined Market Cap</span><span class="stat-value" id="eth-mcap">--</span></div>
+            <div class="stat"><span class="stat-label">Avg Social Volume (24h)</span><span class="stat-value" id="eth-social">--</span></div>
+            <div class="stat"><span class="stat-label">Avg Sentiment</span><span class="stat-value" id="eth-sentiment">--</span></div>
           </div>
         </div>
         <div class="card" id="card-solana">
           <h3>Solana Meme Coins</h3>
           <p class="coins-list">BONK &middot; WIF</p>
           <div class="stats-row">
-            <div class="stat">
-              <span class="stat-label">Combined Market Cap</span>
-              <span class="stat-value" id="sol-mcap">--</span>
-            </div>
-            <div class="stat">
-              <span class="stat-label">Avg Social Volume (24h)</span>
-              <span class="stat-value" id="sol-social">--</span>
-            </div>
-            <div class="stat">
-              <span class="stat-label">Avg Sentiment</span>
-              <span class="stat-value" id="sol-sentiment">--</span>
-            </div>
+            <div class="stat"><span class="stat-label">Combined Market Cap</span><span class="stat-value" id="sol-mcap">--</span></div>
+            <div class="stat"><span class="stat-label">Avg Social Volume (24h)</span><span class="stat-value" id="sol-social">--</span></div>
+            <div class="stat"><span class="stat-label">Avg Sentiment</span><span class="stat-value" id="sol-sentiment">--</span></div>
           </div>
         </div>
         <div class="card" id="card-bitcoin">
           <h3>Bitcoin-Derived</h3>
           <p class="coins-list">DOGE</p>
           <div class="stats-row">
-            <div class="stat">
-              <span class="stat-label">Market Cap</span>
-              <span class="stat-value" id="btc-mcap">--</span>
-            </div>
-            <div class="stat">
-              <span class="stat-label">Social Volume (24h)</span>
-              <span class="stat-value" id="btc-social">--</span>
-            </div>
-            <div class="stat">
-              <span class="stat-label">Sentiment</span>
-              <span class="stat-value" id="btc-sentiment">--</span>
-            </div>
+            <div class="stat"><span class="stat-label">Market Cap</span><span class="stat-value" id="btc-mcap">--</span></div>
+            <div class="stat"><span class="stat-label">Social Volume (24h)</span><span class="stat-value" id="btc-social">--</span></div>
+            <div class="stat"><span class="stat-label">Sentiment</span><span class="stat-value" id="btc-sentiment">--</span></div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Price Comparison -->
+    <!-- Historical Price since 2017 -->
+    <section id="history-section">
+      <h2>Historical Prices Since 2017</h2>
+      <p class="section-desc">Weekly price data, normalized to 100 at each coin's start. Includes Bitcoin for reference.</p>
+      <div class="chart-container large"><canvas id="historyChart"></canvas></div>
+    </section>
+
+    <!-- Bitcoin Correlation -->
+    <section id="btc-corr-section">
+      <h2>Bitcoin Price Correlation</h2>
+      <p class="section-desc">30-day rolling Pearson correlation of each meme coin's daily returns vs Bitcoin. Values near +1 = moves with BTC, near 0 = independent, near -1 = inverse.</p>
+      <div class="chart-container large"><canvas id="btcCorrChart"></canvas></div>
+    </section>
+
+    <!-- Recent Price -->
     <section id="price-section">
-      <h2>Price Performance (Normalized)</h2>
-      <p class="section-desc">All prices normalized to starting value = 100 for comparison</p>
-      <div class="chart-container">
-        <canvas id="priceChart"></canvas>
+      <h2>Recent Price Performance (Normalized)</h2>
+      <p class="section-desc">Prices normalized to starting value = 100</p>
+      <div class="chart-container"><canvas id="priceChart"></canvas></div>
+    </section>
+
+    <!-- Holder Cohorts -->
+    <section id="cohort-section">
+      <h2>Holder Cohort Distribution</h2>
+      <p class="section-desc">Number of holders by wallet balance tier (USD value). Shows how wealth is distributed among different holder types.</p>
+      <div class="control-group" style="margin-bottom:16px">
+        <label for="cohortCoin">Coin</label>
+        <select id="cohortCoin">
+          <option value="shiba-inu">SHIB</option>
+          <option value="pepe">PEPE</option>
+          <option value="floki">FLOKI</option>
+          <option value="bonk">BONK</option>
+          <option value="dogwifhat">WIF</option>
+          <option value="dogecoin">DOGE</option>
+        </select>
+      </div>
+      <div class="chart-row">
+        <div class="chart-container half">
+          <h3>Holders by Balance Tier (Latest)</h3>
+          <canvas id="cohortBarChart"></canvas>
+        </div>
+        <div class="chart-container half">
+          <h3>Key Cohorts Over Time</h3>
+          <canvas id="cohortTimeChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-container" style="margin-top:20px">
+        <h3>Cross-Network Cohort Comparison</h3>
+        <p class="section-desc">Percentage of holders in each significant tier, by coin</p>
+        <canvas id="cohortCompareChart"></canvas>
       </div>
     </section>
 
@@ -103,107 +120,68 @@
     <section id="social-section">
       <h2>Social Volume</h2>
       <p class="section-desc">Total social mentions across all tracked platforms</p>
-      <div class="chart-container">
-        <canvas id="socialChart"></canvas>
-      </div>
+      <div class="chart-container"><canvas id="socialChart"></canvas></div>
     </section>
 
-    <!-- Sentiment Comparison -->
+    <!-- Sentiment -->
     <section id="sentiment-section">
       <h2>Sentiment Balance</h2>
       <p class="section-desc">Net sentiment (positive minus negative) over time</p>
-      <div class="chart-container">
-        <canvas id="sentimentChart"></canvas>
-      </div>
+      <div class="chart-container"><canvas id="sentimentChart"></canvas></div>
     </section>
 
     <!-- Trading Volume -->
     <section id="volume-section">
       <h2>Trading Volume (USD)</h2>
       <p class="section-desc">Daily trading volume comparison</p>
-      <div class="chart-container">
-        <canvas id="volumeChart"></canvas>
-      </div>
+      <div class="chart-container"><canvas id="volumeChart"></canvas></div>
     </section>
 
-    <!-- Network Aggregated Comparison -->
+    <!-- Network Comparison -->
     <section id="network-compare-section">
       <h2>Network Comparison</h2>
       <p class="section-desc">Aggregated metrics by blockchain network</p>
       <div class="chart-row">
-        <div class="chart-container half">
-          <h3>Avg Social Volume by Network</h3>
-          <canvas id="networkSocialChart"></canvas>
-        </div>
-        <div class="chart-container half">
-          <h3>Combined Trading Volume by Network</h3>
-          <canvas id="networkVolumeChart"></canvas>
-        </div>
+        <div class="chart-container half"><h3>Avg Social Volume by Network</h3><canvas id="networkSocialChart"></canvas></div>
+        <div class="chart-container half"><h3>Combined Trading Volume by Network</h3><canvas id="networkVolumeChart"></canvas></div>
       </div>
     </section>
 
-    <!-- Development Activity -->
+    <!-- Dev Activity -->
     <section id="dev-section">
       <h2>Development Activity</h2>
       <p class="section-desc">GitHub development activity over time</p>
-      <div class="chart-container">
-        <canvas id="devChart"></canvas>
-      </div>
+      <div class="chart-container"><canvas id="devChart"></canvas></div>
     </section>
 
-    <!-- Daily Active Addresses -->
+    <!-- DAA -->
     <section id="daa-section">
       <h2>Daily Active Addresses</h2>
       <p class="section-desc">On-chain activity comparison (where available)</p>
-      <div class="chart-container">
-        <canvas id="daaChart"></canvas>
-      </div>
+      <div class="chart-container"><canvas id="daaChart"></canvas></div>
     </section>
 
-    <!-- Individual Coin Table -->
+    <!-- Table -->
     <section id="table-section">
       <h2>Coin Details</h2>
       <div class="table-wrapper">
         <table id="coinTable">
           <thead>
-            <tr>
-              <th>Coin</th>
-              <th>Network</th>
-              <th>Price (USD)</th>
-              <th>Market Cap</th>
-              <th>24h Volume</th>
-              <th>Social Vol (24h)</th>
-              <th>Sentiment</th>
-              <th>Dev Activity</th>
-            </tr>
+            <tr><th>Coin</th><th>Network</th><th>Price (USD)</th><th>Market Cap</th><th>24h Volume</th><th>Social Vol (24h)</th><th>Sentiment</th><th>Dev Activity</th></tr>
           </thead>
-          <tbody id="coinTableBody">
-            <tr><td colspan="8" class="loading">Loading data...</td></tr>
-          </tbody>
+          <tbody id="coinTableBody"><tr><td colspan="8" class="loading">Loading data...</td></tr></tbody>
         </table>
       </div>
     </section>
 
-    <!-- Correlation Matrix -->
+    <!-- Insights -->
     <section id="correlation-section">
       <h2>Cross-Network Correlation Insights</h2>
-      <div id="correlationInsights" class="insights-grid">
-        <div class="insight-card" id="insight-social">
-          <h3>Social Behavior</h3>
-          <p id="insight-social-text">Analyzing...</p>
-        </div>
-        <div class="insight-card" id="insight-price">
-          <h3>Price Correlation</h3>
-          <p id="insight-price-text">Analyzing...</p>
-        </div>
-        <div class="insight-card" id="insight-volume">
-          <h3>Volume Patterns</h3>
-          <p id="insight-volume-text">Analyzing...</p>
-        </div>
-        <div class="insight-card" id="insight-summary">
-          <h3>Network Summary</h3>
-          <p id="insight-summary-text">Analyzing...</p>
-        </div>
+      <div class="insights-grid">
+        <div class="insight-card"><h3>Social Behavior</h3><p id="insight-social-text">Analyzing...</p></div>
+        <div class="insight-card"><h3>Price Correlation</h3><p id="insight-price-text">Analyzing...</p></div>
+        <div class="insight-card"><h3>Volume Patterns</h3><p id="insight-volume-text">Analyzing...</p></div>
+        <div class="insight-card"><h3>Network Summary</h3><p id="insight-summary-text">Analyzing...</p></div>
       </div>
     </section>
   </main>
@@ -215,7 +193,7 @@
 
   <div id="loading-overlay">
     <div class="spinner"></div>
-    <p>Fetching data from Santiment...</p>
+    <p id="loading-text">Fetching data from Santiment...</p>
   </div>
 
   <script src="api.js"></script>

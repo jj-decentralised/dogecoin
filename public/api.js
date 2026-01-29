@@ -15,26 +15,44 @@ const COINS = {
   ],
 };
 
+const BTC = { slug: 'bitcoin', ticker: 'BTC', name: 'Bitcoin', color: '#f7931a' };
+
 const ALL_COINS = Object.values(COINS).flat();
 const ALL_SLUGS = ALL_COINS.map(c => c.slug);
 
 function getCoinBySlug(slug) {
+  if (slug === 'bitcoin') return BTC;
   return ALL_COINS.find(c => c.slug === slug);
 }
 
 function getNetworkForSlug(slug) {
+  if (slug === 'bitcoin') return 'reference';
   for (const [network, coins] of Object.entries(COINS)) {
     if (coins.some(c => c.slug === slug)) return network;
   }
   return 'unknown';
 }
 
-// Single call to server that returns all metrics for all coins
 async function fetchAllData(days) {
   const resp = await fetch(`/api/all?days=${days}`);
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Server error ${resp.status}: ${text}`);
-  }
+  if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+  return resp.json();
+}
+
+async function fetchPriceHistory() {
+  const resp = await fetch('/api/price-history?from=2017-01-01T00:00:00Z&interval=7d');
+  if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+  return resp.json();
+}
+
+async function fetchBtcCorrelation(days) {
+  const resp = await fetch(`/api/btc-correlation?days=${days}&interval=1d`);
+  if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+  return resp.json();
+}
+
+async function fetchCohorts(days) {
+  const resp = await fetch(`/api/cohorts?days=${days}&interval=1d`);
+  if (!resp.ok) throw new Error(`Server error ${resp.status}`);
   return resp.json();
 }

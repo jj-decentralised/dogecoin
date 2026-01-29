@@ -104,16 +104,23 @@ function buildTimeseriesChart(canvasId, perSlugData, options = {}) {
     return;
   }
 
+  const yScale = getLinearScaleOptions(options.yLabel || '');
+  if (options.yMin !== undefined) yScale.min = options.yMin;
+  if (options.yMax !== undefined) yScale.max = options.yMax;
+
+  const chartOpts = {
+    ...CHART_DEFAULTS,
+    scales: {
+      x: getTimeScaleOptions(),
+      y: yScale,
+    },
+  };
+  if (options.large) chartOpts.aspectRatio = 2;
+
   chartInstances[canvasId] = new Chart(ctx, {
     type: 'line',
     data: { datasets },
-    options: {
-      ...CHART_DEFAULTS,
-      scales: {
-        x: getTimeScaleOptions(),
-        y: getLinearScaleOptions(options.yLabel || ''),
-      },
-    },
+    options: chartOpts,
   });
 }
 

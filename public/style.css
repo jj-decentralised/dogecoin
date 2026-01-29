@@ -229,6 +229,10 @@ section h3 {
   max-height: 400px;
 }
 
+.chart-container.large canvas {
+  max-height: 500px;
+}
+
 .chart-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
