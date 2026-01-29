@@ -162,62 +162,107 @@ app.get('/api/btc-correlation', async (req, res) => {
 });
 
 // ─── GET /api/cohorts ───────────────────────────────────
-// Holder distribution: 8 tiers x 6 coins = 48 requests + 6 totals = 54
-// Always fetches from Jan 2024 with daily granularity.
-// Returns { tierLabel: { slug: [{datetime, value}] } }
+// Holder distribution since Jan 2024, daily.
+// Fetches 8 tiers + total per coin, then groups into 4 buckets:
+//   Retail (<$1K), Mid ($1K-$10K), Large ($10K-$100K), Whales ($100K+)
+// Returns:
+//   raw: { tierLabel: { slug: [series] } }
+//   grouped: { slug: { dates, retail[], mid[], large[], whales[], total[] } }
 app.get('/api/cohorts', async (req, res) => {
-  const ck = 'cohorts3:2024-01-01:1d';
+  const ck = 'cohorts4:2024-01-01:1d';
   const hit = checkCache(ck, CACHE_TTL_LONG);
   if (hit) return res.json(hit);
 
   const tiers = [
-    { metric: 'holders_distribution_1_to_10',      label: '$1 – $10' },
-    { metric: 'holders_distribution_10_to_100',     label: '$10 – $100' },
-    { metric: 'holders_distribution_100_to_1k',     label: '$100 – $1K' },
-    { metric: 'holders_distribution_1k_to_10k',     label: '$1K – $10K' },
-    { metric: 'holders_distribution_10k_to_100k',   label: '$10K – $100K' },
-    { metric: 'holders_distribution_100k_to_1M',    label: '$100K – $1M' },
-    { metric: 'holders_distribution_1M_to_10M',     label: '$1M – $10M' },
-    { metric: 'holders_distribution_10M_to_100M',   label: '$10M – $100M' },
+    { metric: 'holders_distribution_1_to_10',      label: '$1 – $10',       group: 'retail' },
+    { metric: 'holders_distribution_10_to_100',     label: '$10 – $100',     group: 'retail' },
+    { metric: 'holders_distribution_100_to_1k',     label: '$100 – $1K',     group: 'retail' },
+    { metric: 'holders_distribution_1k_to_10k',     label: '$1K – $10K',     group: 'mid' },
+    { metric: 'holders_distribution_10k_to_100k',   label: '$10K – $100K',   group: 'large' },
+    { metric: 'holders_distribution_100k_to_1M',    label: '$100K – $1M',    group: 'whales' },
+    { metric: 'holders_distribution_1M_to_10M',     label: '$1M – $10M',     group: 'whales' },
+    { metric: 'holders_distribution_10M_to_100M',   label: '$10M – $100M',   group: 'whales' },
   ];
 
   const to = new Date().toISOString();
   const from = '2024-01-01T00:00:00Z';
   const interval = '1d';
 
-  // { tierLabel: { slug: [{datetime,value}] } }
-  const result = {};
-  tiers.forEach(t => { result[t.label] = {}; });
-  result['_total'] = {};
+  // Raw: { tierLabel: { slug: [{datetime,value}] } }
+  const raw = {};
+  tiers.forEach(t => { raw[t.label] = {}; });
+  raw['_total'] = {};
 
   const tasks = [];
   for (const tier of tiers) {
     for (const slug of MEME_SLUGS) {
       tasks.push(async () => {
         try {
-          result[tier.label][slug] = await sanFetch(tier.metric, slug, from, to, interval);
+          raw[tier.label][slug] = await sanFetch(tier.metric, slug, from, to, interval);
         } catch (e) {
-          result[tier.label][slug] = [];
+          raw[tier.label][slug] = [];
         }
       });
     }
   }
-  // Totals
   for (const slug of MEME_SLUGS) {
     tasks.push(async () => {
       try {
-        result['_total'][slug] = await sanFetch('holders_distribution_total', slug, from, to, interval);
+        raw['_total'][slug] = await sanFetch('holders_distribution_total', slug, from, to, interval);
       } catch (e) {
-        result['_total'][slug] = [];
+        raw['_total'][slug] = [];
       }
     });
   }
 
-  // 48 total requests, batch of 6 to stay under rate limits
   await batchFetch(tasks, 6);
 
-  setCache(ck, result);
-  res.json(result);
+  // Group tiers into 4 buckets per slug, compute % of total
+  const grouped = {};
+  const groupNames = ['retail', 'mid', 'large', 'whales'];
+
+  for (const slug of MEME_SLUGS) {
+    // Build date-indexed maps for each group
+    const groupMaps = { retail: {}, mid: {}, large: {}, whales: {} };
+    const totalMap = {};
+
+    // Sum tiers into groups
+    for (const tier of tiers) {
+      const series = raw[tier.label][slug] || [];
+      for (const dp of series) {
+        if (!groupMaps[tier.group][dp.datetime]) groupMaps[tier.group][dp.datetime] = 0;
+        if (dp.value > 0) groupMaps[tier.group][dp.datetime] += dp.value;
+      }
+    }
+
+    // Total holders
+    const totalSeries = raw['_total'][slug] || [];
+    for (const dp of totalSeries) {
+      if (dp.value > 0) totalMap[dp.datetime] = dp.value;
+    }
+
+    // Get all dates from total series (canonical)
+    const dates = totalSeries.filter(dp => dp.value > 0).map(dp => dp.datetime);
+    if (dates.length === 0) continue;
+
+    // Build percentage arrays
+    const result = { dates: dates };
+    for (const g of groupNames) {
+      result[g] = dates.map(dt => {
+        const count = groupMaps[g][dt] || 0;
+        const total = totalMap[dt] || 1;
+        return Math.round((count / total) * 10000) / 100; // % with 2 decimals
+      });
+      result[g + '_abs'] = dates.map(dt => groupMaps[g][dt] || 0);
+    }
+    result['total'] = dates.map(dt => totalMap[dt] || 0);
+
+    grouped[slug] = result;
+  }
+
+  const output = { raw, grouped };
+  setCache(ck, output);
+  res.json(output);
 });
 
 // Fallback

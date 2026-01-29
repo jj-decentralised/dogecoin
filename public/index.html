@@ -73,8 +73,15 @@
     <!-- Bitcoin Correlation -->
     <section id="btc-corr-section">
       <h2>Bitcoin Price Correlation</h2>
-      <p class="section-desc">30-day rolling Pearson correlation of each meme coin's daily returns vs Bitcoin. Values near +1 = moves with BTC, near 0 = independent, near -1 = inverse.</p>
+      <p class="section-desc">30-day rolling Pearson correlation of each meme coin's daily returns vs Bitcoin. Dashed lines mark thresholds: 0.7 (high correlation) and 0.5 (independence).</p>
       <div class="chart-container large"><canvas id="btcCorrChart"></canvas></div>
+    </section>
+
+    <!-- Cross-Asset Correlation Matrix -->
+    <section id="corr-matrix-section">
+      <h2>Cross-Asset Correlation Matrix</h2>
+      <p class="section-desc">Pairwise Pearson correlations of daily returns across all meme coins. Darker green = higher correlation.</p>
+      <div class="chart-container"><canvas id="corrMatrixChart"></canvas></div>
     </section>
 
     <!-- Recent Price -->
@@ -87,7 +94,7 @@
     <!-- Holder Cohorts -->
     <section id="cohort-section">
       <h2>Holder Cohort Distribution</h2>
-      <p class="section-desc">Number of wallet addresses by USD balance tier since January 2024 (daily). Each chart shows one wealth tier so you can compare holder behavior across networks.</p>
+      <p class="section-desc">Wallet distribution by USD balance tier since January 2024 (daily). Stacked areas show each coin's holder composition; comparison charts show cross-network trends for retail (&lt;$1K) and whale ($100K+) cohorts.</p>
       <div id="cohort-charts"></div>
     </section>
 
@@ -115,10 +122,13 @@
     <!-- Network Comparison -->
     <section id="network-compare-section">
       <h2>Network Comparison</h2>
-      <p class="section-desc">Aggregated metrics by blockchain network</p>
+      <p class="section-desc">Aggregated metrics by blockchain network. Dominance shows each network's share of total meme coin market cap.</p>
       <div class="chart-row">
-        <div class="chart-container half"><h3>Avg Social Volume by Network</h3><canvas id="networkSocialChart"></canvas></div>
+        <div class="chart-container half"><h3>Network Market Cap Dominance</h3><canvas id="networkDominanceChart"></canvas></div>
         <div class="chart-container half"><h3>Combined Trading Volume by Network</h3><canvas id="networkVolumeChart"></canvas></div>
+      </div>
+      <div class="chart-row" style="margin-top:20px">
+        <div class="chart-container half"><h3>Avg Social Volume by Network</h3><canvas id="networkSocialChart"></canvas></div>
       </div>
     </section>
 

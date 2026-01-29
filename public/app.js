@@ -41,7 +41,7 @@ async function loadAllData() {
     ]);
 
     if (hist.status === 'fulfilled') { HISTORY_DATA = hist.value; renderHistory(); }
-    if (corr.status === 'fulfilled') { CORR_DATA = corr.value; renderBtcCorrelation(); }
+    if (corr.status === 'fulfilled') { CORR_DATA = corr.value; renderBtcCorrelation(); renderCorrelationMatrix(); }
     if (cohorts.status === 'fulfilled') { COHORT_DATA = cohorts.value; renderCohorts(); }
   } catch (err) {
     console.error('Load failed:', err);
@@ -85,6 +85,7 @@ function renderCharts() {
   buildTimeseriesChart('volumeChart', DATA['volume_usd'] || {}, { yLabel: 'USD' });
   buildTimeseriesChart('devChart', DATA['dev_activity'] || {}, { yLabel: 'Activity' });
   buildTimeseriesChart('daaChart', DATA['daily_active_addresses'] || {}, { yLabel: 'Addresses' });
+  renderNetworkDominance();
   buildNetworkTimeseriesChart('networkSocialChart', DATA['social_volume_total'] || {}, { yLabel: 'Social Mentions' });
   buildNetworkTimeseriesChart('networkVolumeChart', DATA['volume_usd'] || {}, { yLabel: 'Volume USD' });
 }
@@ -102,7 +103,7 @@ function renderHistory() {
 }
 
 // ═══════════════════════════════════════════════════
-// BTC correlation
+// BTC correlation — with reference lines
 // ═══════════════════════════════════════════════════
 function renderBtcCorrelation() {
   if (!CORR_DATA) return;
@@ -121,11 +122,85 @@ function renderBtcCorrelation() {
     if (rolling.length > 0) perSlugCorr[slug] = rolling;
   }
 
-  buildTimeseriesChart('btcCorrChart', perSlugCorr, {
-    yLabel: 'Correlation with BTC',
-    large: true,
-    yMin: -1,
-    yMax: 1,
+  // Build datasets
+  destroyChart('btcCorrChart');
+  const ctx = document.getElementById('btcCorrChart');
+  if (!ctx) return;
+
+  const datasets = [];
+  for (const [slug, series] of Object.entries(perSlugCorr)) {
+    const coin = getCoinBySlug(slug);
+    if (!coin) continue;
+    datasets.push({
+      label: `${coin.ticker}`,
+      data: series.map(d => ({ x: new Date(d.datetime), y: d.value })),
+      borderColor: coin.color,
+      backgroundColor: coin.color + '15',
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      fill: false,
+      tension: 0.3,
+    });
+  }
+
+  // Get date range for reference lines
+  const allDates = Object.values(perSlugCorr).flat();
+  if (allDates.length === 0) return;
+  const minDate = new Date(allDates.reduce((m, d) => d.datetime < m ? d.datetime : m, allDates[0].datetime));
+  const maxDate = new Date(allDates.reduce((m, d) => d.datetime > m ? d.datetime : m, allDates[0].datetime));
+
+  // High correlation threshold (0.7)
+  datasets.push({
+    label: 'High Correlation (0.7)',
+    data: [{ x: minDate, y: 0.7 }, { x: maxDate, y: 0.7 }],
+    borderColor: '#e6a817',
+    borderWidth: 1,
+    borderDash: [8, 4],
+    pointRadius: 0,
+    fill: false,
+    tension: 0,
+  });
+
+  // Independence threshold (0.5)
+  datasets.push({
+    label: 'Independence (0.5)',
+    data: [{ x: minDate, y: 0.5 }, { x: maxDate, y: 0.5 }],
+    borderColor: '#2ecc71',
+    borderWidth: 1,
+    borderDash: [8, 4],
+    pointRadius: 0,
+    fill: false,
+    tension: 0,
+  });
+
+  // Zero line
+  datasets.push({
+    label: 'Zero',
+    data: [{ x: minDate, y: 0 }, { x: maxDate, y: 0 }],
+    borderColor: '#ccc',
+    borderWidth: 1,
+    pointRadius: 0,
+    fill: false,
+    tension: 0,
+  });
+
+  chartInstances['btcCorrChart'] = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      ...CHART_DEFAULTS,
+      aspectRatio: 2,
+      scales: {
+        x: getTimeScaleOptions(),
+        y: {
+          min: -1, max: 1,
+          grid: { color: '#f0f0f0', drawBorder: false },
+          ticks: { color: '#999', font: { size: 11 } },
+          title: { display: true, text: 'Correlation with BTC', color: '#999', font: { size: 11 } },
+        },
+      },
+    },
   });
 }
 
@@ -177,64 +252,222 @@ function pearson(x, y) {
 }
 
 // ═══════════════════════════════════════════════════
-// Cohorts — one chart per tier, all coins overlaid
-// COHORT_DATA shape: { tierLabel: { slug: [{datetime, value}] }, _total: { slug: [...] } }
+// Cross-Asset Correlation Matrix
+// ═══════════════════════════════════════════════════
+function renderCorrelationMatrix() {
+  if (!CORR_DATA) return;
+  const canvas = document.getElementById('corrMatrixChart');
+  if (!canvas) return;
+  destroyChart('corrMatrixChart');
+
+  const slugs = ALL_SLUGS.filter(s => CORR_DATA[s] && CORR_DATA[s].length > 30);
+  if (slugs.length < 2) return;
+
+  // Compute returns for all
+  const returnsMap = {};
+  for (const slug of slugs) {
+    returnsMap[slug] = computeReturns(CORR_DATA[slug]);
+  }
+
+  // Compute pairwise correlations (full period)
+  const labels = slugs.map(s => {
+    const coin = getCoinBySlug(s);
+    return coin ? coin.ticker : s;
+  });
+  const matrix = [];
+
+  for (let i = 0; i < slugs.length; i++) {
+    const row = [];
+    for (let j = 0; j < slugs.length; j++) {
+      if (i === j) { row.push(1); continue; }
+      const a = returnsMap[slugs[i]], b = returnsMap[slugs[j]];
+      // Align by date
+      const bMap = {};
+      for (const d of b) bMap[d.datetime] = d.value;
+      const ax = [], bx = [];
+      for (const d of a) {
+        if (bMap[d.datetime] !== undefined) { ax.push(d.value); bx.push(bMap[d.datetime]); }
+      }
+      row.push(ax.length > 10 ? pearson(ax, bx) : NaN);
+    }
+    matrix.push(row);
+  }
+
+  // Render as HTML table (Chart.js doesn't natively do heatmaps well)
+  const container = canvas.parentElement;
+  canvas.style.display = 'none';
+
+  const table = document.createElement('div');
+  table.className = 'corr-matrix';
+  let html = '<table><thead><tr><th></th>';
+  for (const l of labels) html += `<th>${l}</th>`;
+  html += '</tr></thead><tbody>';
+
+  for (let i = 0; i < labels.length; i++) {
+    html += `<tr><th>${labels[i]}</th>`;
+    for (let j = 0; j < labels.length; j++) {
+      const v = matrix[i][j];
+      const bg = corrColor(v);
+      const text = isNaN(v) ? '--' : v.toFixed(2);
+      html += `<td style="background:${bg};color:${v > 0.7 ? '#fff' : '#1a1a1a'};text-align:center;font-weight:500;font-size:0.85rem;padding:10px 8px">${text}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  table.innerHTML = html;
+  container.appendChild(table);
+}
+
+function corrColor(v) {
+  if (isNaN(v)) return '#f5f5f5';
+  // Green gradient: 0 = light, 1 = dark green
+  const t = Math.max(0, Math.min(1, (v + 1) / 2)); // map -1..1 to 0..1
+  const r = Math.round(245 - t * 180);
+  const g = Math.round(245 - t * 80);
+  const b = Math.round(245 - t * 160);
+  return `rgb(${r},${g},${b})`;
+}
+
+// ═══════════════════════════════════════════════════
+// Network Dominance (ETH vs SOL meme market cap share)
+// ═══════════════════════════════════════════════════
+function renderNetworkDominance() {
+  const mcapData = DATA['marketcap_usd'] || {};
+  destroyChart('networkDominanceChart');
+  const ctx = document.getElementById('networkDominanceChart');
+  if (!ctx) return;
+
+  // Aggregate mcap by network per date
+  const networkTimeseries = { ethereum: {}, solana: {}, bitcoin: {} };
+
+  for (const [slug, dataPoints] of Object.entries(mcapData)) {
+    const network = getNetworkForSlug(slug);
+    if (!networkTimeseries[network]) continue;
+    for (const dp of dataPoints) {
+      if (!networkTimeseries[network][dp.datetime]) networkTimeseries[network][dp.datetime] = 0;
+      if (dp.value) networkTimeseries[network][dp.datetime] += dp.value;
+    }
+  }
+
+  // Compute ETH dominance % per date
+  const allDates = [...new Set(Object.values(networkTimeseries).flatMap(m => Object.keys(m)))].sort();
+  const ethDom = [], solDom = [];
+
+  for (const dt of allDates) {
+    const eth = networkTimeseries.ethereum[dt] || 0;
+    const sol = networkTimeseries.solana[dt] || 0;
+    const btc = networkTimeseries.bitcoin[dt] || 0;
+    const total = eth + sol + btc;
+    if (total > 0) {
+      ethDom.push({ x: new Date(dt), y: (eth / total) * 100 });
+      solDom.push({ x: new Date(dt), y: (sol / total) * 100 });
+    }
+  }
+
+  const networkColors = { ethereum: '#636890', solana: '#9945FF', bitcoin: '#f2a900' };
+
+  chartInstances['networkDominanceChart'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [
+        {
+          label: 'Ethereum Memes',
+          data: ethDom,
+          borderColor: networkColors.ethereum,
+          backgroundColor: networkColors.ethereum + '30',
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: 'Solana Memes',
+          data: solDom,
+          borderColor: networkColors.solana,
+          backgroundColor: networkColors.solana + '30',
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: true,
+          tension: 0.3,
+        },
+      ],
+    },
+    options: {
+      ...CHART_DEFAULTS,
+      aspectRatio: 1.5,
+      scales: {
+        x: getTimeScaleOptions(),
+        y: {
+          min: 0, max: 100,
+          grid: { color: '#f0f0f0', drawBorder: false },
+          ticks: { color: '#999', font: { size: 11 }, callback: v => v + '%' },
+          title: { display: true, text: 'Market Cap Share (%)', color: '#999', font: { size: 11 } },
+        },
+      },
+    },
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// Cohorts — stacked area % per coin + comparison charts
+// COHORT_DATA shape: { raw: {...}, grouped: { slug: { dates, retail[], mid[], large[], whales[], total[] } } }
 // ═══════════════════════════════════════════════════
 function renderCohorts() {
-  if (!COHORT_DATA) return;
+  if (!COHORT_DATA || !COHORT_DATA.grouped) return;
 
   const container = document.getElementById('cohort-charts');
   if (!container) return;
 
-  // Get tier labels (everything except _total)
-  const tierLabels = Object.keys(COHORT_DATA).filter(k => k !== '_total');
-
-  // Clear previous charts and DOM
-  tierLabels.forEach((_, i) => destroyChart('cohort-tier-' + i));
+  // Clean up previous
+  const prevIds = container.querySelectorAll('canvas');
+  prevIds.forEach(c => destroyChart(c.id));
   container.innerHTML = '';
 
-  // Build a grid: 2 columns
-  const grid = document.createElement('div');
-  grid.className = 'chart-row-wrap';
-  container.appendChild(grid);
+  const grouped = COHORT_DATA.grouped;
+  const coinsWithData = ALL_COINS.filter(c => grouped[c.slug] && grouped[c.slug].dates && grouped[c.slug].dates.length > 10);
+  if (coinsWithData.length === 0) {
+    container.innerHTML = '<p class="section-desc" style="text-align:center;padding:40px">No cohort data available.</p>';
+    return;
+  }
 
-  tierLabels.forEach((tier, idx) => {
-    const tierData = COHORT_DATA[tier]; // { slug: [{datetime,value}] }
-    if (!tierData) return;
+  const groupColors = {
+    retail: { border: '#2ecc71', bg: 'rgba(46,204,113,0.4)' },
+    mid:    { border: '#3498db', bg: 'rgba(52,152,219,0.4)' },
+    large:  { border: '#f39c12', bg: 'rgba(243,156,18,0.4)' },
+    whales: { border: '#e74c3c', bg: 'rgba(231,76,60,0.4)' },
+  };
+  const groupLabels = { retail: '<$1K (Retail)', mid: '$1K–$10K', large: '$10K–$100K', whales: '$100K+ (Whales)' };
+  const groupKeys = ['retail', 'mid', 'large', 'whales'];
 
-    // Check if any coin has data for this tier
-    const hasData = ALL_SLUGS.some(s => tierData[s] && tierData[s].length > 1);
-    if (!hasData) return;
+  // === 1. Stacked area chart per coin (% of holders by group) ===
+  const stackedGrid = document.createElement('div');
+  stackedGrid.className = 'chart-row-wrap';
+  const stackedTitle = document.createElement('h3');
+  stackedTitle.textContent = 'Holder Distribution Over Time (% of Wallets)';
+  stackedTitle.style.cssText = 'font-size:1.1rem;font-weight:400;color:#666;margin-bottom:12px';
+  container.appendChild(stackedTitle);
+  container.appendChild(stackedGrid);
 
-    const canvasId = 'cohort-tier-' + idx;
-
+  coinsWithData.forEach((coin, idx) => {
+    const d = grouped[coin.slug];
+    const canvasId = 'cohort-stacked-' + idx;
     const wrapper = document.createElement('div');
     wrapper.className = 'chart-container half';
-    wrapper.innerHTML = `<h3>${tier} holders</h3><canvas id="${canvasId}"></canvas>`;
-    grid.appendChild(wrapper);
+    wrapper.innerHTML = `<h3>${coin.ticker}: Cohort Distribution</h3><canvas id="${canvasId}"></canvas>`;
+    stackedGrid.appendChild(wrapper);
 
-    // Build one line per coin
-    const datasets = [];
-    for (const coin of ALL_COINS) {
-      const series = tierData[coin.slug];
-      if (!series || series.length < 2) continue;
+    const dates = d.dates.map(dt => new Date(dt));
+    const datasets = groupKeys.map(g => ({
+      label: groupLabels[g],
+      data: dates.map((dt, i) => ({ x: dt, y: d[g][i] })),
+      borderColor: groupColors[g].border,
+      backgroundColor: groupColors[g].bg,
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: true,
+      tension: 0.3,
+    }));
 
-      datasets.push({
-        label: coin.ticker,
-        data: series.map(d => ({ x: new Date(d.datetime), y: d.value })),
-        borderColor: coin.color,
-        backgroundColor: coin.color + '10',
-        borderWidth: 2,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        tension: 0.3,
-        fill: false,
-      });
-    }
-
-    if (datasets.length === 0) return;
-
-    // Use requestAnimationFrame to ensure canvas is in DOM before drawing
     requestAnimationFrame(() => {
       const ctx = document.getElementById(canvasId);
       if (!ctx) return;
@@ -247,13 +480,133 @@ function renderCohorts() {
           scales: {
             x: getTimeScaleOptions(),
             y: {
+              stacked: true,
+              min: 0, max: 100,
               grid: { color: '#f0f0f0', drawBorder: false },
-              ticks: { color: '#999', font: { size: 10 }, callback: v => formatCompact(v) },
-              title: { display: true, text: 'Addresses', color: '#999', font: { size: 10 } },
+              ticks: { color: '#999', font: { size: 10 }, callback: v => v + '%' },
+              title: { display: true, text: '% of Wallets', color: '#999', font: { size: 10 } },
+            },
+          },
+          plugins: {
+            ...CHART_DEFAULTS.plugins,
+            tooltip: {
+              ...CHART_DEFAULTS.plugins.tooltip,
+              callbacks: {
+                label: function(context) {
+                  return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}%`;
+                },
+              },
             },
           },
         },
       });
+    });
+  });
+
+  // === 2. Retail Ownership Comparison (all coins, line chart) ===
+  const compTitle = document.createElement('h3');
+  compTitle.textContent = 'Cross-Network Cohort Comparison';
+  compTitle.style.cssText = 'font-size:1.1rem;font-weight:400;color:#666;margin-top:30px;margin-bottom:12px';
+  container.appendChild(compTitle);
+
+  const compGrid = document.createElement('div');
+  compGrid.className = 'chart-row-wrap';
+  container.appendChild(compGrid);
+
+  // Retail comparison
+  buildCohortComparisonChart(compGrid, 'cohort-retail-cmp', 'Retail Ownership (<$1K)', 'retail', coinsWithData, grouped);
+  // Whale comparison
+  buildCohortComparisonChart(compGrid, 'cohort-whale-cmp', 'Whale Concentration ($100K+)', 'whales', coinsWithData, grouped);
+  // Total holders comparison
+  buildCohortTotalChart(compGrid, 'cohort-total-cmp', 'Total Holders Over Time', coinsWithData, grouped);
+  // Mid-tier comparison
+  buildCohortComparisonChart(compGrid, 'cohort-mid-cmp', 'Mid-Tier ($1K–$10K)', 'mid', coinsWithData, grouped);
+}
+
+function buildCohortComparisonChart(parent, canvasId, title, groupKey, coins, grouped) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'chart-container half';
+  wrapper.innerHTML = `<h3>${title}</h3><canvas id="${canvasId}"></canvas>`;
+  parent.appendChild(wrapper);
+
+  const datasets = coins.map(coin => {
+    const d = grouped[coin.slug];
+    const dates = d.dates.map(dt => new Date(dt));
+    return {
+      label: coin.ticker,
+      data: dates.map((dt, i) => ({ x: dt, y: d[groupKey][i] })),
+      borderColor: coin.color,
+      backgroundColor: coin.color + '20',
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      fill: false,
+      tension: 0.3,
+    };
+  });
+
+  requestAnimationFrame(() => {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    chartInstances[canvasId] = new Chart(ctx, {
+      type: 'line',
+      data: { datasets },
+      options: {
+        ...CHART_DEFAULTS,
+        aspectRatio: 1.6,
+        scales: {
+          x: getTimeScaleOptions(),
+          y: {
+            grid: { color: '#f0f0f0', drawBorder: false },
+            ticks: { color: '#999', font: { size: 10 }, callback: v => v + '%' },
+            title: { display: true, text: '% of Wallets', color: '#999', font: { size: 10 } },
+          },
+        },
+      },
+    });
+  });
+}
+
+function buildCohortTotalChart(parent, canvasId, title, coins, grouped) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'chart-container half';
+  wrapper.innerHTML = `<h3>${title}</h3><canvas id="${canvasId}"></canvas>`;
+  parent.appendChild(wrapper);
+
+  const datasets = coins.map(coin => {
+    const d = grouped[coin.slug];
+    const dates = d.dates.map(dt => new Date(dt));
+    return {
+      label: coin.ticker,
+      data: dates.map((dt, i) => ({ x: dt, y: d.total[i] })),
+      borderColor: coin.color,
+      backgroundColor: coin.color + '20',
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      fill: false,
+      tension: 0.3,
+    };
+  });
+
+  requestAnimationFrame(() => {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    chartInstances[canvasId] = new Chart(ctx, {
+      type: 'line',
+      data: { datasets },
+      options: {
+        ...CHART_DEFAULTS,
+        aspectRatio: 1.6,
+        scales: {
+          x: getTimeScaleOptions(),
+          y: {
+            grid: { color: '#f0f0f0', drawBorder: false },
+            ticks: { color: '#999', font: { size: 10 }, callback: v => formatCompact(v) },
+            title: { display: true, text: 'Total Holders', color: '#999', font: { size: 10 } },
+          },
+        },
+      },
     });
   });
 }

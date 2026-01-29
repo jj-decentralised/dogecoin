@@ -317,6 +317,34 @@ tr:hover {
   line-height: 1.6;
 }
 
+/* Correlation Matrix */
+.corr-matrix table {
+  width: auto;
+  margin: 0 auto;
+  border-collapse: separate;
+  border-spacing: 2px;
+}
+
+.corr-matrix th {
+  padding: 10px 12px;
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: var(--off-white);
+  border-bottom: none;
+  white-space: nowrap;
+}
+
+.corr-matrix td {
+  border-radius: 4px;
+  border-bottom: none;
+  min-width: 60px;
+}
+
+.corr-matrix tr:hover {
+  background: transparent;
+}
+
 /* Footer */
 footer {
   text-align: center;
