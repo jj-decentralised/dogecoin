@@ -162,14 +162,11 @@ app.get('/api/btc-correlation', async (req, res) => {
 });
 
 // ─── GET /api/cohorts ───────────────────────────────────
-// Holder distribution: 6 actionable tiers x 6 coins = 36 requests + 6 totals = 42
+// Holder distribution: 8 tiers x 6 coins = 48 requests + 6 totals = 54
+// Always fetches from Jan 2024 with daily granularity.
 // Returns { tierLabel: { slug: [{datetime, value}] } }
-// Organized by tier so the frontend can show one chart per tier with all coins.
 app.get('/api/cohorts', async (req, res) => {
-  const days = parseInt(req.query.days || '90', 10);
-  const interval = req.query.interval || '1d';
-
-  const ck = `cohorts2:${days}:${interval}`;
+  const ck = 'cohorts3:2024-01-01:1d';
   const hit = checkCache(ck, CACHE_TTL_LONG);
   if (hit) return res.json(hit);
 
@@ -185,7 +182,8 @@ app.get('/api/cohorts', async (req, res) => {
   ];
 
   const to = new Date().toISOString();
-  const from = new Date(Date.now() - days * 86400000).toISOString();
+  const from = '2024-01-01T00:00:00Z';
+  const interval = '1d';
 
   // { tierLabel: { slug: [{datetime,value}] } }
   const result = {};

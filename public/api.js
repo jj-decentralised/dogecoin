@@ -51,8 +51,8 @@ async function fetchBtcCorrelation(days) {
   return resp.json();
 }
 
-async function fetchCohorts(days) {
-  const resp = await fetch(`/api/cohorts?days=${days}&interval=1d`);
+async function fetchCohorts() {
+  const resp = await fetch('/api/cohorts');
   if (!resp.ok) throw new Error(`Server error ${resp.status}`);
   return resp.json();
 }

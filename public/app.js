@@ -37,7 +37,7 @@ async function loadAllData() {
     const [hist, corr, cohorts] = await Promise.allSettled([
       HISTORY_DATA ? Promise.resolve(HISTORY_DATA) : fetchPriceHistory(),
       fetchBtcCorrelation(Math.max(days, 365)),
-      fetchCohorts(Math.min(days, 90)),
+      COHORT_DATA ? Promise.resolve(COHORT_DATA) : fetchCohorts(),
     ]);
 
     if (hist.status === 'fulfilled') { HISTORY_DATA = hist.value; renderHistory(); }
