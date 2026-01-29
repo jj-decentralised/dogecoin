@@ -18,8 +18,18 @@ const COINS = {
   ],
 };
 
-const ALL_SLUGS = Object.values(COINS).flat().map(c => c.slug);
 const ALL_COINS = Object.values(COINS).flat();
+const ALL_SLUGS = ALL_COINS.map(c => c.slug);
+
+const ALL_METRICS = [
+  'price_usd',
+  'marketcap_usd',
+  'volume_usd',
+  'social_volume_total',
+  'sentiment_balance_total',
+  'dev_activity',
+  'daily_active_addresses',
+];
 
 function getCoinBySlug(slug) {
   return ALL_COINS.find(c => c.slug === slug);
@@ -68,29 +78,8 @@ async function sanQuery(query) {
   return json.data;
 }
 
-// Fetch a timeseries metric for multiple slugs
-async function fetchMetricMulti(metric, slugs, days, interval = '1d') {
-  const { from, to } = getDateRange(days);
-  const slugList = slugs.map(s => `"${s}"`).join(', ');
-
-  const query = `{
-    getMetric(metric: "${metric}") {
-      timeseriesDataPerSlugJson(
-        selector: { slugs: [${slugList}] }
-        from: "${from}"
-        to: "${to}"
-        interval: "${interval}"
-      )
-    }
-  }`;
-
-  const data = await sanQuery(query);
-  const raw = data.getMetric.timeseriesDataPerSlugJson;
-  return typeof raw === 'string' ? JSON.parse(raw) : raw;
-}
-
-// Fetch a single metric for a single slug
-async function fetchMetricSingle(metric, slug, days, interval = '1d') {
+// Fetch a single metric for a single slug — returns [{datetime, value}]
+async function fetchMetric(metric, slug, days, interval = '1d') {
   const { from, to } = getDateRange(days);
 
   const query = `{
@@ -108,92 +97,38 @@ async function fetchMetricSingle(metric, slug, days, interval = '1d') {
   }`;
 
   const data = await sanQuery(query);
-  return data.getMetric.timeseriesData;
+  return data.getMetric.timeseriesData || [];
 }
 
-// Fetch aggregated metric value
-async function fetchAggregated(metric, slug, days, aggregation = 'LAST') {
-  const { from, to } = getDateRange(days);
-
-  const query = `{
-    getMetric(metric: "${metric}") {
-      aggregatedTimeseriesData(
-        slug: "${slug}"
-        from: "${from}"
-        to: "${to}"
-        aggregation: ${aggregation}
-      )
-    }
-  }`;
-
-  const data = await sanQuery(query);
-  return data.getMetric.aggregatedTimeseriesData;
-}
-
-// Batch fetch: latest values for all coins
-async function fetchLatestForAllCoins(days) {
+// Fetch one metric for ALL coins in parallel
+// Returns { slug: [{datetime, value}] }
+async function fetchMetricForAll(metric, days) {
   const results = {};
-
-  // Fetch each metric in parallel for all slugs
-  const metrics = ['price_usd', 'marketcap_usd', 'volume_usd', 'social_volume_total', 'sentiment_balance_total', 'dev_activity'];
-
-  const promises = metrics.map(async (metric) => {
+  const promises = ALL_SLUGS.map(async (slug) => {
     try {
-      const data = await fetchMetricMulti(metric, ALL_SLUGS, days);
-      return { metric, data, error: null };
+      const series = await fetchMetric(metric, slug, days);
+      results[slug] = series;
     } catch (err) {
-      console.warn(`Failed to fetch ${metric} multi:`, err.message);
-      // Fallback: fetch individually
-      const fallbackResults = {};
-      for (const slug of ALL_SLUGS) {
-        try {
-          const val = await fetchAggregated(metric, slug, days, 'LAST');
-          fallbackResults[slug] = val;
-        } catch (e) {
-          console.warn(`Failed to fetch ${metric} for ${slug}:`, e.message);
-          fallbackResults[slug] = null;
-        }
-      }
-      return { metric, data: null, fallback: fallbackResults, error: err };
+      console.warn(`Failed ${metric} for ${slug}:`, err.message);
+      results[slug] = [];
     }
   });
-
-  const settled = await Promise.all(promises);
-
-  for (const result of settled) {
-    results[result.metric] = result;
-  }
-
+  await Promise.all(promises);
   return results;
 }
 
-// Parse timeseries per-slug JSON into { slug: [{datetime, value}] }
-function parsePerSlugData(rawData) {
-  if (!rawData) return {};
-
-  // Santiment returns data as { slug: { datetime: value, ... } } or array format
-  // Handle various formats
-  if (typeof rawData === 'object' && !Array.isArray(rawData)) {
-    const parsed = {};
-    for (const [slug, values] of Object.entries(rawData)) {
-      if (Array.isArray(values)) {
-        parsed[slug] = values;
-      } else if (typeof values === 'object') {
-        // Convert {datetime: value} to [{datetime, value}]
-        parsed[slug] = Object.entries(values).map(([dt, v]) => ({
-          datetime: dt,
-          value: v,
-        }));
-      }
+// Fetch ALL metrics for ALL coins
+// Returns { metricName: { slug: [{datetime, value}] } }
+async function fetchAllData(days) {
+  const data = {};
+  const promises = ALL_METRICS.map(async (metric) => {
+    try {
+      data[metric] = await fetchMetricForAll(metric, days);
+    } catch (err) {
+      console.warn(`Failed to fetch metric ${metric}:`, err.message);
+      data[metric] = {};
     }
-    return parsed;
-  }
-
-  return rawData;
-}
-
-// Get the last value from a timeseries
-function getLastValue(timeseries) {
-  if (!timeseries || timeseries.length === 0) return null;
-  return timeseries[timeseries.length - 1].value;
+  });
+  await Promise.all(promises);
+  return data;
 }
