@@ -177,131 +177,84 @@ function pearson(x, y) {
 }
 
 // ═══════════════════════════════════════════════════
-// Cohorts
+// Cohorts — one chart per tier, all coins overlaid
+// COHORT_DATA shape: { tierLabel: { slug: [{datetime, value}] }, _total: { slug: [...] } }
 // ═══════════════════════════════════════════════════
 function renderCohorts() {
   if (!COHORT_DATA) return;
-  const slug = document.getElementById('cohortCoin').value;
-  renderCohortBar(slug);
-  renderCohortTime(slug);
-  renderCohortCompare();
-}
 
-function renderCohortBar(slug) {
-  destroyChart('cohortBarChart');
-  const ctx = document.getElementById('cohortBarChart');
-  if (!ctx || !COHORT_DATA) return;
+  const container = document.getElementById('cohort-charts');
+  if (!container) return;
 
-  const holders = COHORT_DATA.holders[slug];
-  if (!holders) { showNoData('cohortBarChart'); return; }
+  // Get tier labels (everything except _total)
+  const tierLabels = Object.keys(COHORT_DATA).filter(k => k !== '_total');
 
-  const tiers = [
-    '$1 - $10', '$10 - $100', '$100 - $1K', '$1K - $10K',
-    '$10K - $100K', '$100K - $1M', '$1M - $10M', '$10M - $100M',
-    '$100M - $1B', '$1B+',
-  ];
-  const colors = [
-    '#e0e0e0','#c8c8c8','#b0b0b0','#909090',
-    '#707070','#555555','#404040','#2a2a2a',
-    '#1a1a1a','#000000',
-  ];
+  // Clear previous charts and DOM
+  tierLabels.forEach((_, i) => destroyChart('cohort-tier-' + i));
+  container.innerHTML = '';
 
-  const labels = [], values = [], barColors = [];
-  for (let i = 0; i < tiers.length; i++) {
-    const series = holders[tiers[i]];
-    if (series && series.length > 0) {
-      const v = series[series.length - 1].value;
-      if (v > 0) { labels.push(tiers[i]); values.push(v); barColors.push(colors[i]); }
-    }
-  }
+  // Build a grid: 2 columns
+  const grid = document.createElement('div');
+  grid.className = 'chart-row-wrap';
+  container.appendChild(grid);
 
-  if (values.length === 0) { showNoData('cohortBarChart'); return; }
+  tierLabels.forEach((tier, idx) => {
+    const tierData = COHORT_DATA[tier]; // { slug: [{datetime,value}] }
+    if (!tierData) return;
 
-  chartInstances['cohortBarChart'] = new Chart(ctx, {
-    type: 'bar',
-    data: { labels, datasets: [{ data: values, backgroundColor: barColors, borderWidth: 0, borderRadius: 3 }] },
-    options: {
-      ...CHART_DEFAULTS, aspectRatio: 1.3, indexAxis: 'y',
-      plugins: { ...CHART_DEFAULTS.plugins, legend: { display: false } },
-      scales: {
-        x: { grid: { color: '#f0f0f0' }, ticks: { color: '#999', font: { size: 10 }, callback: v => formatCompact(v) } },
-        y: { grid: { display: false }, ticks: { color: '#666', font: { size: 10 } } },
-      },
-    },
-  });
-}
+    // Check if any coin has data for this tier
+    const hasData = ALL_SLUGS.some(s => tierData[s] && tierData[s].length > 1);
+    if (!hasData) return;
 
-function renderCohortTime(slug) {
-  destroyChart('cohortTimeChart');
-  const ctx = document.getElementById('cohortTimeChart');
-  if (!ctx || !COHORT_DATA) return;
+    const canvasId = 'cohort-tier-' + idx;
 
-  const holders = COHORT_DATA.holders[slug];
-  if (!holders) { showNoData('cohortTimeChart'); return; }
+    const wrapper = document.createElement('div');
+    wrapper.className = 'chart-container half';
+    wrapper.innerHTML = `<h3>${tier} holders</h3><canvas id="${canvasId}"></canvas>`;
+    grid.appendChild(wrapper);
 
-  const keyTiers = [
-    { label: '$100 - $1K', color: '#b0b0b0' },
-    { label: '$1K - $10K', color: '#808080' },
-    { label: '$10K - $100K', color: '#555555' },
-    { label: '$100K - $1M', color: '#333333' },
-    { label: '$1M - $10M', color: '#1a1a1a' },
-  ];
+    // Build one line per coin
+    const datasets = [];
+    for (const coin of ALL_COINS) {
+      const series = tierData[coin.slug];
+      if (!series || series.length < 2) continue;
 
-  const datasets = [];
-  for (const tier of keyTiers) {
-    const series = holders[tier.label];
-    if (series && series.length > 1) {
       datasets.push({
-        label: tier.label,
+        label: coin.ticker,
         data: series.map(d => ({ x: new Date(d.datetime), y: d.value })),
-        borderColor: tier.color, backgroundColor: tier.color + '15',
-        borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false,
+        borderColor: coin.color,
+        backgroundColor: coin.color + '10',
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.3,
+        fill: false,
       });
     }
-  }
 
-  if (datasets.length === 0) { showNoData('cohortTimeChart'); return; }
+    if (datasets.length === 0) return;
 
-  chartInstances['cohortTimeChart'] = new Chart(ctx, {
-    type: 'line', data: { datasets },
-    options: { ...CHART_DEFAULTS, aspectRatio: 1.3, scales: { x: getTimeScaleOptions(), y: getLinearScaleOptions('Holders') } },
-  });
-}
-
-function renderCohortCompare() {
-  destroyChart('cohortCompareChart');
-  const ctx = document.getElementById('cohortCompareChart');
-  if (!ctx || !COHORT_DATA) return;
-
-  const compareTiers = ['$100 - $1K', '$1K - $10K', '$10K - $100K', '$100K - $1M', '$1M - $10M'];
-  const tierColors = ['#d0d0d0', '#a0a0a0', '#707070', '#444444', '#1a1a1a'];
-  const coinLabels = ALL_COINS.map(c => c.ticker);
-
-  const datasets = compareTiers.map((tier, t) => {
-    const data = ALL_COINS.map(coin => {
-      const holders = COHORT_DATA.holders[coin.slug];
-      if (!holders) return 0;
-      const tierVal = lastVal(holders[tier]) || 0;
-      const totalVal = lastVal(holders['_total']) || 1;
-      return totalVal > 0 ? (tierVal / totalVal) * 100 : 0;
+    // Use requestAnimationFrame to ensure canvas is in DOM before drawing
+    requestAnimationFrame(() => {
+      const ctx = document.getElementById(canvasId);
+      if (!ctx) return;
+      chartInstances[canvasId] = new Chart(ctx, {
+        type: 'line',
+        data: { datasets },
+        options: {
+          ...CHART_DEFAULTS,
+          aspectRatio: 1.6,
+          scales: {
+            x: getTimeScaleOptions(),
+            y: {
+              grid: { color: '#f0f0f0', drawBorder: false },
+              ticks: { color: '#999', font: { size: 10 }, callback: v => formatCompact(v) },
+              title: { display: true, text: 'Addresses', color: '#999', font: { size: 10 } },
+            },
+          },
+        },
+      });
     });
-    return { label: tier, data, backgroundColor: tierColors[t], borderWidth: 0, borderRadius: 2 };
-  });
-
-  chartInstances['cohortCompareChart'] = new Chart(ctx, {
-    type: 'bar', data: { labels: coinLabels, datasets },
-    options: {
-      ...CHART_DEFAULTS, aspectRatio: 2.5,
-      plugins: {
-        ...CHART_DEFAULTS.plugins,
-        tooltip: { ...CHART_DEFAULTS.plugins.tooltip, callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(2)}%` } },
-      },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: '#666', font: { size: 12 } } },
-        y: { grid: { color: '#f0f0f0' }, ticks: { color: '#999', font: { size: 10 }, callback: v => v + '%' },
-          title: { display: true, text: '% of Total Holders', color: '#999', font: { size: 11 } } },
-      },
-    },
   });
 }
 
@@ -404,5 +357,4 @@ function generateSummary() {
 // Events
 // ═══════════════════════════════════════════════════
 document.getElementById('timeRange').addEventListener('change', loadAllData);
-document.getElementById('cohortCoin').addEventListener('change', () => renderCohorts());
 document.addEventListener('DOMContentLoaded', loadAllData);

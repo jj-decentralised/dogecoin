@@ -162,92 +162,61 @@ app.get('/api/btc-correlation', async (req, res) => {
 });
 
 // ─── GET /api/cohorts ───────────────────────────────────
-// Holder distribution cohorts for each meme coin
-// Returns { slug: { cohortLabel: [{datetime, value}] } }
+// Holder distribution: 6 actionable tiers x 6 coins = 36 requests + 6 totals = 42
+// Returns { tierLabel: { slug: [{datetime, value}] } }
+// Organized by tier so the frontend can show one chart per tier with all coins.
 app.get('/api/cohorts', async (req, res) => {
   const days = parseInt(req.query.days || '90', 10);
   const interval = req.query.interval || '1d';
 
-  const ck = `cohorts:${days}:${interval}`;
+  const ck = `cohorts2:${days}:${interval}`;
   const hit = checkCache(ck, CACHE_TTL_LONG);
   if (hit) return res.json(hit);
 
-  // Cohort buckets: metric suffix -> display label
-  const cohorts = [
-    { metric: 'holders_distribution_0_to_0.001',           label: '$0 - $0.001' },
-    { metric: 'holders_distribution_0.001_to_0.01',        label: '$0.001 - $0.01' },
-    { metric: 'holders_distribution_0.01_to_0.1',          label: '$0.01 - $0.1' },
-    { metric: 'holders_distribution_0.1_to_1',             label: '$0.1 - $1' },
-    { metric: 'holders_distribution_1_to_10',              label: '$1 - $10' },
-    { metric: 'holders_distribution_10_to_100',            label: '$10 - $100' },
-    { metric: 'holders_distribution_100_to_1k',            label: '$100 - $1K' },
-    { metric: 'holders_distribution_1k_to_10k',            label: '$1K - $10K' },
-    { metric: 'holders_distribution_10k_to_100k',          label: '$10K - $100K' },
-    { metric: 'holders_distribution_100k_to_1M',           label: '$100K - $1M' },
-    { metric: 'holders_distribution_1M_to_10M',            label: '$1M - $10M' },
-    { metric: 'holders_distribution_10M_to_100M',          label: '$10M - $100M' },
-    { metric: 'holders_distribution_100M_to_1B',           label: '$100M - $1B' },
-    { metric: 'holders_distribution_1B_to_inf',            label: '$1B+' },
-  ];
-
-  // Also fetch combined_balance (total USD held per cohort)
-  const balanceCohorts = [
-    { metric: 'holders_distribution_combined_balance_0.001_to_0.01', label: '$0.001 - $0.01' },
-    { metric: 'holders_distribution_combined_balance_0.01_to_0.1',   label: '$0.01 - $0.1' },
-    { metric: 'holders_distribution_combined_balance_0.1_to_1',      label: '$0.1 - $1' },
-    { metric: 'holders_distribution_combined_balance_1_to_10',       label: '$1 - $10' },
-    { metric: 'holders_distribution_combined_balance_10_to_100',     label: '$10 - $100' },
-    { metric: 'holders_distribution_combined_balance_100_to_1k',     label: '$100 - $1K' },
-    { metric: 'holders_distribution_combined_balance_1k_to_10k',     label: '$1K - $10K' },
-    { metric: 'holders_distribution_combined_balance_10k_to_100k',   label: '$10K - $100K' },
-    { metric: 'holders_distribution_combined_balance_100k_to_1M',    label: '$100K - $1M' },
-    { metric: 'holders_distribution_combined_balance_1M_to_10M',     label: '$1M - $10M' },
-    { metric: 'holders_distribution_combined_balance_10M_to_100M',   label: '$10M - $100M' },
-    { metric: 'holders_distribution_combined_balance_100M_to_1B',    label: '$100M - $1B' },
-    { metric: 'holders_distribution_combined_balance_1B_to_inf',     label: '$1B+' },
+  const tiers = [
+    { metric: 'holders_distribution_1_to_10',      label: '$1 – $10' },
+    { metric: 'holders_distribution_10_to_100',     label: '$10 – $100' },
+    { metric: 'holders_distribution_100_to_1k',     label: '$100 – $1K' },
+    { metric: 'holders_distribution_1k_to_10k',     label: '$1K – $10K' },
+    { metric: 'holders_distribution_10k_to_100k',   label: '$10K – $100K' },
+    { metric: 'holders_distribution_100k_to_1M',    label: '$100K – $1M' },
+    { metric: 'holders_distribution_1M_to_10M',     label: '$1M – $10M' },
+    { metric: 'holders_distribution_10M_to_100M',   label: '$10M – $100M' },
   ];
 
   const to = new Date().toISOString();
   const from = new Date(Date.now() - days * 86400000).toISOString();
 
-  const result = { holders: {}, balances: {} };
-  MEME_SLUGS.forEach(s => { result.holders[s] = {}; result.balances[s] = {}; });
+  // { tierLabel: { slug: [{datetime,value}] } }
+  const result = {};
+  tiers.forEach(t => { result[t.label] = {}; });
+  result['_total'] = {};
 
-  // Fetch holder counts
   const tasks = [];
-  for (const slug of MEME_SLUGS) {
-    for (const c of cohorts) {
+  for (const tier of tiers) {
+    for (const slug of MEME_SLUGS) {
       tasks.push(async () => {
         try {
-          result.holders[slug][c.label] = await sanFetch(c.metric, slug, from, to, interval);
+          result[tier.label][slug] = await sanFetch(tier.metric, slug, from, to, interval);
         } catch (e) {
-          result.holders[slug][c.label] = [];
-        }
-      });
-    }
-    for (const c of balanceCohorts) {
-      tasks.push(async () => {
-        try {
-          result.balances[slug][c.label] = await sanFetch(c.metric, slug, from, to, interval);
-        } catch (e) {
-          result.balances[slug][c.label] = [];
+          result[tier.label][slug] = [];
         }
       });
     }
   }
-
-  // Also fetch holders_distribution_total
+  // Totals
   for (const slug of MEME_SLUGS) {
     tasks.push(async () => {
       try {
-        result.holders[slug]['_total'] = await sanFetch('holders_distribution_total', slug, from, to, interval);
+        result['_total'][slug] = await sanFetch('holders_distribution_total', slug, from, to, interval);
       } catch (e) {
-        result.holders[slug]['_total'] = [];
+        result['_total'][slug] = [];
       }
     });
   }
 
-  await batchFetch(tasks, 8);
+  // 48 total requests, batch of 6 to stay under rate limits
+  await batchFetch(tasks, 6);
 
   setCache(ck, result);
   res.json(result);

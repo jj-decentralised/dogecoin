@@ -87,33 +87,8 @@
     <!-- Holder Cohorts -->
     <section id="cohort-section">
       <h2>Holder Cohort Distribution</h2>
-      <p class="section-desc">Number of holders by wallet balance tier (USD value). Shows how wealth is distributed among different holder types.</p>
-      <div class="control-group" style="margin-bottom:16px">
-        <label for="cohortCoin">Coin</label>
-        <select id="cohortCoin">
-          <option value="shiba-inu">SHIB</option>
-          <option value="pepe">PEPE</option>
-          <option value="floki">FLOKI</option>
-          <option value="bonk">BONK</option>
-          <option value="dogwifhat">WIF</option>
-          <option value="dogecoin">DOGE</option>
-        </select>
-      </div>
-      <div class="chart-row">
-        <div class="chart-container half">
-          <h3>Holders by Balance Tier (Latest)</h3>
-          <canvas id="cohortBarChart"></canvas>
-        </div>
-        <div class="chart-container half">
-          <h3>Key Cohorts Over Time</h3>
-          <canvas id="cohortTimeChart"></canvas>
-        </div>
-      </div>
-      <div class="chart-container" style="margin-top:20px">
-        <h3>Cross-Network Cohort Comparison</h3>
-        <p class="section-desc">Percentage of holders in each significant tier, by coin</p>
-        <canvas id="cohortCompareChart"></canvas>
-      </div>
+      <p class="section-desc">Number of wallet addresses by USD balance tier, over time, for all coins. Each chart shows one wealth tier so you can compare holder behavior across networks.</p>
+      <div id="cohort-charts"></div>
     </section>
 
     <!-- Social Volume -->

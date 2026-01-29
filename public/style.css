@@ -233,7 +233,8 @@ section h3 {
   max-height: 500px;
 }
 
-.chart-row {
+.chart-row,
+.chart-row-wrap {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
@@ -383,7 +384,8 @@ footer a {
     gap: 12px;
   }
 
-  .chart-row {
+  .chart-row,
+  .chart-row-wrap {
     grid-template-columns: 1fr;
   }
 
