@@ -77,6 +77,13 @@
       <div class="chart-container large"><canvas id="btcCorrChart"></canvas></div>
     </section>
 
+    <!-- Historical Beta to BTC -->
+    <section id="btc-beta-section">
+      <h2>Historical Beta to Bitcoin</h2>
+      <p class="section-desc">30-day rolling beta measures how much each meme coin amplifies Bitcoin's moves. Beta &gt; 1 = amplifies BTC, Beta = 1 = moves 1:1, Beta &lt; 1 = dampens. Compression over time suggests maturation.</p>
+      <div class="chart-container large"><canvas id="btcBetaChart"></canvas></div>
+    </section>
+
     <!-- Cross-Asset Correlation Matrix -->
     <section id="corr-matrix-section">
       <h2>Cross-Asset Correlation Matrix</h2>
@@ -95,6 +102,7 @@
     <section id="cohort-section">
       <h2>Holder Cohort Distribution</h2>
       <p class="section-desc">Wallet distribution by USD balance tier since January 2024 (daily). Stacked areas show each coin's holder composition; comparison charts show cross-network trends for retail (&lt;$1K) and whale ($100K+) cohorts.</p>
+      <div id="cohort-insights"></div>
       <div id="cohort-charts"></div>
     </section>
 

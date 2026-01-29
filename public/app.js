@@ -41,8 +41,8 @@ async function loadAllData() {
     ]);
 
     if (hist.status === 'fulfilled') { HISTORY_DATA = hist.value; renderHistory(); }
-    if (corr.status === 'fulfilled') { CORR_DATA = corr.value; renderBtcCorrelation(); renderCorrelationMatrix(); }
-    if (cohorts.status === 'fulfilled') { COHORT_DATA = cohorts.value; renderCohorts(); }
+    if (corr.status === 'fulfilled') { CORR_DATA = corr.value; renderBtcCorrelation(); renderBtcBeta(); renderCorrelationMatrix(); }
+    if (cohorts.status === 'fulfilled') { COHORT_DATA = cohorts.value; renderCohortInsights(); renderCohorts(); }
   } catch (err) {
     console.error('Load failed:', err);
   } finally {
@@ -202,6 +202,128 @@ function renderBtcCorrelation() {
       },
     },
   });
+}
+
+// ═══════════════════════════════════════════════════
+// Historical Beta to BTC — rolling 30-day
+// Beta = Cov(coin, BTC) / Var(BTC)
+// ═══════════════════════════════════════════════════
+function renderBtcBeta() {
+  if (!CORR_DATA) return;
+
+  const btcSeries = CORR_DATA['bitcoin'] || [];
+  if (btcSeries.length < 31) return;
+
+  const btcReturns = computeReturns(btcSeries);
+  const perSlugBeta = {};
+
+  for (const slug of ALL_SLUGS) {
+    const series = CORR_DATA[slug];
+    if (!series || series.length < 31) continue;
+    const coinReturns = computeReturns(series);
+    const rolling = rollingBeta(coinReturns, btcReturns, 30);
+    if (rolling.length > 0) perSlugBeta[slug] = rolling;
+  }
+
+  destroyChart('btcBetaChart');
+  const ctx = document.getElementById('btcBetaChart');
+  if (!ctx) return;
+
+  const datasets = [];
+  for (const [slug, series] of Object.entries(perSlugBeta)) {
+    const coin = getCoinBySlug(slug);
+    if (!coin) continue;
+    datasets.push({
+      label: coin.ticker,
+      data: series.map(d => ({ x: new Date(d.datetime), y: d.value })),
+      borderColor: coin.color,
+      backgroundColor: coin.color + '15',
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      fill: false,
+      tension: 0.3,
+    });
+  }
+
+  // Get date range for reference lines
+  const allDates = Object.values(perSlugBeta).flat();
+  if (allDates.length === 0) return;
+  const minDate = new Date(allDates.reduce((m, d) => d.datetime < m ? d.datetime : m, allDates[0].datetime));
+  const maxDate = new Date(allDates.reduce((m, d) => d.datetime > m ? d.datetime : m, allDates[0].datetime));
+
+  // Beta = 1 reference line
+  datasets.push({
+    label: 'Beta = 1 (moves 1:1 with BTC)',
+    data: [{ x: minDate, y: 1 }, { x: maxDate, y: 1 }],
+    borderColor: '#e6a817',
+    borderWidth: 1,
+    borderDash: [8, 4],
+    pointRadius: 0,
+    fill: false,
+    tension: 0,
+  });
+
+  // Zero line
+  datasets.push({
+    label: 'Zero',
+    data: [{ x: minDate, y: 0 }, { x: maxDate, y: 0 }],
+    borderColor: '#ccc',
+    borderWidth: 1,
+    pointRadius: 0,
+    fill: false,
+    tension: 0,
+  });
+
+  chartInstances['btcBetaChart'] = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      ...CHART_DEFAULTS,
+      aspectRatio: 2,
+      scales: {
+        x: getTimeScaleOptions(),
+        y: {
+          grid: { color: '#f0f0f0', drawBorder: false },
+          ticks: { color: '#999', font: { size: 11 } },
+          title: { display: true, text: 'Beta to BTC', color: '#999', font: { size: 11 } },
+        },
+      },
+    },
+  });
+}
+
+function rollingBeta(a, b, window) {
+  const bMap = {};
+  for (const d of b) bMap[d.datetime] = d.value;
+
+  const aligned = [];
+  for (const d of a) {
+    if (bMap[d.datetime] !== undefined) {
+      aligned.push({ datetime: d.datetime, av: d.value, bv: bMap[d.datetime] });
+    }
+  }
+
+  const result = [];
+  for (let i = window; i <= aligned.length; i++) {
+    const slice = aligned.slice(i - window, i);
+    const coinRet = slice.map(s => s.av);
+    const btcRet = slice.map(s => s.bv);
+    const n = coinRet.length;
+    const meanC = coinRet.reduce((s, v) => s + v, 0) / n;
+    const meanB = btcRet.reduce((s, v) => s + v, 0) / n;
+    let cov = 0, varB = 0;
+    for (let j = 0; j < n; j++) {
+      const dc = coinRet[j] - meanC;
+      const db = btcRet[j] - meanB;
+      cov += dc * db;
+      varB += db * db;
+    }
+    if (varB > 0) {
+      result.push({ datetime: slice[slice.length - 1].datetime, value: cov / varB });
+    }
+  }
+  return result;
 }
 
 function computeReturns(series) {
@@ -406,6 +528,114 @@ function renderNetworkDominance() {
       },
     },
   });
+}
+
+// ═══════════════════════════════════════════════════
+// Cohort Insights — narrative text about what each $ tier is doing
+// ═══════════════════════════════════════════════════
+function renderCohortInsights() {
+  if (!COHORT_DATA || !COHORT_DATA.grouped) return;
+  const container = document.getElementById('cohort-insights');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const grouped = COHORT_DATA.grouped;
+  const groupLabels = {
+    retail: 'Retail (<$1K)',
+    mid: 'Mid-Tier ($1K–$10K)',
+    large: 'Large ($10K–$100K)',
+    whales: 'Whales ($100K+)',
+  };
+  const groupKeys = ['retail', 'mid', 'large', 'whales'];
+
+  // For each coin, compute start/end % and absolute counts for each tier
+  const coinInsights = [];
+  for (const coin of ALL_COINS) {
+    const d = grouped[coin.slug];
+    if (!d || !d.dates || d.dates.length < 30) continue;
+
+    const len = d.dates.length;
+    const startDate = new Date(d.dates[0]).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    const endDate = new Date(d.dates[len - 1]).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    const totalStart = d.total[0];
+    const totalEnd = d.total[len - 1];
+    const totalChange = totalEnd - totalStart;
+    const totalPct = totalStart > 0 ? ((totalChange / totalStart) * 100).toFixed(1) : '0';
+
+    const tiers = {};
+    for (const g of groupKeys) {
+      const pctStart = d[g][0];
+      const pctEnd = d[g][len - 1];
+      const absStart = d[g + '_abs'][0];
+      const absEnd = d[g + '_abs'][len - 1];
+      const absChange = absEnd - absStart;
+      const absPct = absStart > 0 ? ((absChange / absStart) * 100).toFixed(1) : (absEnd > 0 ? '+new' : '0');
+      tiers[g] = {
+        pctStart: pctStart.toFixed(1),
+        pctEnd: pctEnd.toFixed(1),
+        pctDelta: (pctEnd - pctStart).toFixed(1),
+        absStart, absEnd, absChange,
+        absPct,
+        direction: pctEnd > pctStart + 0.5 ? 'growing' : pctEnd < pctStart - 0.5 ? 'shrinking' : 'stable',
+      };
+    }
+
+    coinInsights.push({ coin, startDate, endDate, totalStart, totalEnd, totalChange, totalPct, tiers });
+  }
+
+  if (coinInsights.length === 0) return;
+
+  // Build the insights grid
+  const grid = document.createElement('div');
+  grid.className = 'insights-grid';
+  grid.style.marginBottom = '30px';
+
+  for (const ci of coinInsights) {
+    const card = document.createElement('div');
+    card.className = 'insight-card';
+    card.style.borderLeft = `3px solid ${ci.coin.color}`;
+
+    let html = `<h3 style="margin-bottom:8px">${ci.coin.ticker}: Cohort Breakdown</h3>`;
+    html += `<p style="font-size:0.8rem;color:#999;margin-bottom:8px">${ci.startDate} → ${ci.endDate} &middot; Total holders: ${formatCompact(ci.totalStart)} → ${formatCompact(ci.totalEnd)} (${ci.totalPct > 0 ? '+' : ''}${ci.totalPct}%)</p>`;
+
+    for (const g of groupKeys) {
+      const t = ci.tiers[g];
+      const arrow = t.direction === 'growing' ? '&#9650;' : t.direction === 'shrinking' ? '&#9660;' : '&#9644;';
+      const color = t.direction === 'growing' ? '#2ecc71' : t.direction === 'shrinking' ? '#e74c3c' : '#999';
+      const delta = parseFloat(t.pctDelta);
+      const deltaStr = delta > 0 ? `+${t.pctDelta}pp` : `${t.pctDelta}pp`;
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #f0f0f0;font-size:0.85rem">`;
+      html += `<span><strong>${groupLabels[g]}</strong></span>`;
+      html += `<span style="color:${color}">${arrow} ${t.pctEnd}% <span style="font-size:0.75rem">(${deltaStr})</span></span>`;
+      html += `</div>`;
+    }
+
+    // Key takeaway
+    const dominant = groupKeys.reduce((best, g) => {
+      return parseFloat(ci.tiers[g].pctEnd) > parseFloat(ci.tiers[best].pctEnd) ? g : best;
+    }, groupKeys[0]);
+    const fastestGrowing = groupKeys.reduce((best, g) => {
+      return parseFloat(ci.tiers[g].pctDelta) > parseFloat(ci.tiers[best].pctDelta) ? g : best;
+    }, groupKeys[0]);
+    const fastestDeclining = groupKeys.reduce((worst, g) => {
+      return parseFloat(ci.tiers[g].pctDelta) < parseFloat(ci.tiers[worst].pctDelta) ? g : worst;
+    }, groupKeys[0]);
+
+    html += `<p style="font-size:0.8rem;color:#666;margin-top:8px">`;
+    html += `Dominated by <strong>${groupLabels[dominant]}</strong> at ${ci.tiers[dominant].pctEnd}%. `;
+    if (parseFloat(ci.tiers[fastestGrowing].pctDelta) > 0.5) {
+      html += `${groupLabels[fastestGrowing]} growing fastest (+${ci.tiers[fastestGrowing].pctDelta}pp). `;
+    }
+    if (parseFloat(ci.tiers[fastestDeclining].pctDelta) < -0.5) {
+      html += `${groupLabels[fastestDeclining]} declining (${ci.tiers[fastestDeclining].pctDelta}pp). `;
+    }
+    html += `</p>`;
+
+    card.innerHTML = html;
+    grid.appendChild(card);
+  }
+
+  container.appendChild(grid);
 }
 
 // ═══════════════════════════════════════════════════
